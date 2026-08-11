@@ -1,18 +1,20 @@
 # ddos-tool
 
-> **Go-based network stress testing and security research tool for authorized environments.**
+> **Go-based network traffic testing and security research tool for authorized environments.**
 
-`ddos-tool` is an interactive command-line network testing utility written in Go.
+`ddos-tool` is an interactive command-line network traffic-testing utility written in Go.
 
 It provides multiple TCP, UDP, and HTTP traffic-generation methods, configurable concurrency, proxy management, multi-target testing, traffic statistics, result logging, network diagnostics, and system information.
 
-The project is intended for **authorized penetration testing, security research, network performance testing, education, and controlled laboratory environments**.
+The project is intended only for **authorized penetration testing, security research, network performance testing, education, and controlled laboratory environments**.
 
 > ⚠️ **Only test systems and networks that you own or have explicit authorization to test.**
 
 ---
 
 ## Features
+
+> ⚠️ These capabilities can generate substantial traffic. Define a written scope, approved test window, and conservative resource limits before running a test.
 
 ### Traffic Testing
 
@@ -213,7 +215,7 @@ If the file does not exist, a default configuration is automatically created.
 | `save_logs`       |  `true` | Enable result logging             |
 | `bypass_firewall` | `false` | Configuration field               |
 
-## The application currently allows the thread count to be configured between 1 and 100.
+The application currently allows the thread count to be configured between 1 and 100.
 
 ## Pause & Resume
 
@@ -300,7 +302,7 @@ The traffic-testing menu provides:
 6. Multi-Target Attack
 ```
 
-## These menus are implemented directly in the application source.
+These menus are implemented directly in the application source.
 
 ## Authorization & Ethical Testing
 
@@ -333,6 +335,8 @@ The application also provides built-in ethical testing guidelines covering:
 * Linux, macOS, or Windows
 * Network connectivity for HTTP/proxy functionality
 
+This repository currently does not include a `go.mod`; the commands below compile `main.go` directly.
+
 Optional system utilities:
 
 * `ping`
@@ -355,7 +359,7 @@ cd ddos-tool
 Build the application as:
 
 ```bash
-go build -o ddos-tool .
+go build -o ddos-tool main.go
 ```
 
 This produces:
@@ -377,7 +381,7 @@ Linux/macOS:
 Or run directly using Go:
 
 ```bash
-go run .
+go run main.go
 ```
 
 ---
@@ -388,9 +392,10 @@ go run .
 ddos-tool/
 ├── main.go
 ├── README.md
-├── LICENSE.md
-└── go.mod
+└── LICENSE.md
 ```
+
+The project is currently a single-file Go program. There are no committed dependency, test, CI, or configuration files.
 
 ### Runtime Files
 
@@ -419,7 +424,7 @@ If `config.json` does not exist, the application automatically creates it with t
 
 Stores timestamped testing and operational results when the user chooses to save results.
 
-These runtime files should generally be excluded from Git using `.gitignore`.
+These runtime files should not be committed to Git. If you run the tool locally, add them to your local `.gitignore`.
 
 ---
 
@@ -447,7 +452,7 @@ sync/atomic
 time
 ```
 
-The project uses Go goroutines, mutexes, wait groups, and atomic counters to handle concurrent testing and statistics collection.
+The project uses only the Go standard library. Go goroutines, mutexes, wait groups, and atomic counters handle concurrent testing and statistics collection.
 
 ---
 
@@ -549,7 +554,7 @@ gofmt -w main.go
 Build and verify:
 
 ```bash
-go build -o ddos-tool .
+go build -o ddos-tool main.go
 ```
 
 ---
@@ -568,9 +573,9 @@ The software is provided **"as is"**, without warranties of any kind.
 
 ## License
 
-This project is distributed under the **Ethical Use License**.
+This project is distributed under the **MIT License**.
 
-See [`LICENSE`](LICENSE) for the complete terms.
+See [`LICENSE.md`](LICENSE.md) for the complete terms.
 
 ---
 
