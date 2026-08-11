@@ -388,25 +388,38 @@ go run .
 ddos-tool/
 ├── main.go
 ├── README.md
-├── LICENSE
-├── go.mod
-├── config.json
-└── attack_results.txt
+├── LICENSE.md
+└── go.mod
 ```
 
-`config.json` and `attack_results.txt` are generated/used at runtime and do not need to be committed to the repository.
+### Runtime Files
 
----
+The application creates additional files when required:
 
-## Runtime Files
+```text
+config.json
+attack_results.txt
+```
 
-### `config.json`
+These files are generated locally and are not required to be committed to the repository.
 
-Stores application configuration.
+#### `config.json`
 
-### `attack_results.txt`
+Stores the application's runtime configuration, including:
 
-Stores timestamped operational/test results when results are saved.
+* Thread count
+* Packet size
+* Proxy auto-refresh
+* Result logging
+* Attack timeout
+
+If `config.json` does not exist, the application automatically creates it with the default configuration.
+
+#### `attack_results.txt`
+
+Stores timestamped testing and operational results when the user chooses to save results.
+
+These runtime files should generally be excluded from Git using `.gitignore`.
 
 ---
 
