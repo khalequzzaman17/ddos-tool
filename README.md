@@ -694,7 +694,6 @@ If you find the project useful for legitimate research or authorized testing:
 ---
 
 > **Use responsibly. Test only with authorization.**
-```
 
 ---
 
