@@ -575,7 +575,7 @@ The software is provided **"as is"**, without warranties of any kind.
 
 This project is distributed under the **MIT License**.
 
-See [`LICENSE.md`](LICENSE.md) for the complete terms.
+See [`LICENSE`](LICENSE) for the complete terms.
 
 ---
 
