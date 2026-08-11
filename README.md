@@ -4,7 +4,7 @@
 
 `ddos-tool` is an interactive command-line network traffic-testing utility written in Go.
 
-It provides multiple TCP, UDP, and HTTP traffic-generation methods, configurable concurrency, proxy management, multi-target testing, traffic statistics, result logging, network diagnostics, and system information.
+It provides multiple TCP, UDP, and HTTP traffic-generation methods, configurable concurrency, proxy management, multi-target testing, **subnet-based testing**, traffic statistics, result logging, network diagnostics, and system information.
 
 The project is intended only for **authorized penetration testing, security research, network performance testing, education, and controlled laboratory environments**.
 
@@ -29,8 +29,84 @@ The tool currently supports:
 * Multi-threaded TCP data testing
 * HTTP request testing
 * Multi-target UDP testing
+* **Subnet-based testing (NEW)**
 
 Packet size, target port, duration, and concurrency can be configured through the interactive interface.
+
+---
+
+## Subnet Testing (NEW)
+
+The tool now supports testing entire subnets in a single operation.
+
+### How It Works
+
+1. **Parse CIDR** - Convert `192.168.1.0/24` to a list of all IPs in the range
+2. **Scan for Active Hosts** - Check which hosts are responsive on a specified port
+3. **Attack All Active Hosts** - Launch concurrent tests against all discovered hosts
+
+### Subnet Attack Configuration
+
+```text
+🌐 SUBNET ATTACK CONFIGURATION
+================================
+
+Enter CIDR (e.g., 192.168.1.0/24): 192.168.1.0/24
+📌 Port to scan/attack (1-65535): 80
+⏱️ Attack duration per host (seconds): 30
+📦 Packet size (bytes, 1-65500): 1024
+🧵 Max concurrent attacks (1-50): 20
+
+⚔️ Attack Method:
+1. UDP Plain
+2. UDP Random
+3. UDP Spoof
+4. TCP SYN
+5. TCP Data
+```
+
+### Subnet Attack Flow
+
+```text
+[*] 🌐 Starting subnet attack on 192.168.1.0/24
+[*] 📊 CIDR 192.168.1.0/24 contains 254 IPs
+[*] 🔍 Scanning 254 hosts on port 80...
+[*] ✅ Active host found: 192.168.1.10:80
+[*] ✅ Active host found: 192.168.1.20:80
+[*] ✅ Active host found: 192.168.1.30:80
+[+] ✅ Found 15 active hosts out of 254
+[*] 🎯 Starting attack on 15 active hosts
+[*] ⚔️ Attacking 192.168.1.10:80
+[*] ⚔️ Attacking 192.168.1.20:80
+[*] ✅ Completed attack on 192.168.1.10 (1/15)
+[+] 🎉 Subnet attack completed! Attacked 15 hosts
+```
+
+### Subnet Attack Methods
+
+| Method | Description |
+|--------|-------------|
+| UDP Plain | Fixed payload testing across subnet |
+| UDP Random | Random payload testing across subnet |
+| UDP Spoof | Spoofed source IP testing across subnet |
+| TCP SYN | SYN connection testing across subnet |
+| TCP Data | Data transmission testing across subnet |
+
+### Configuration for Subnet Testing
+
+The following settings can be adjusted in `config.json`:
+
+```json
+{
+  "max_subnet_threads": 20,
+  "scan_timeout": 1000
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `max_subnet_threads` | `20` | Max concurrent subnet attacks |
+| `scan_timeout` | `1000` | Host scan timeout in milliseconds |
 
 ---
 
@@ -176,6 +252,8 @@ Logged events include:
 * Proxy validation
 * Target information
 * Packet/request counts
+* Subnet scan results
+* Active host discovery
 
 Results are timestamped before being added to the internal result log.
 
@@ -200,22 +278,28 @@ If the file does not exist, a default configuration is automatically created.
   "packet_size": 1024,
   "auto_refresh": true,
   "save_logs": true,
-  "bypass_firewall": false
+  "bypass_firewall": false,
+  "max_subnet_threads": 20,
+  "scan_timeout": 1000
 }
 ```
 
 ### Configuration Options
 
-| Option            | Default | Description                       |
-| ----------------- | ------: | --------------------------------- |
-| `attack_timeout`  |    `60` | Configured testing timeout        |
-| `thread_count`    |    `10` | Number of concurrent workers      |
-| `packet_size`     |  `1024` | Default packet size               |
-| `auto_refresh`    |  `true` | Automatically refresh proxy lists |
-| `save_logs`       |  `true` | Enable result logging             |
-| `bypass_firewall` | `false` | Configuration field               |
+| Option               | Default | Description                       |
+| -------------------- | ------: | --------------------------------- |
+| `attack_timeout`     |    `60` | Configured testing timeout        |
+| `thread_count`       |    `10` | Number of concurrent workers      |
+| `packet_size`        |  `1024` | Default packet size               |
+| `auto_refresh`       |  `true` | Automatically refresh proxy lists |
+| `save_logs`          |  `true` | Enable result logging             |
+| `bypass_firewall`    | `false` | Configuration field               |
+| `max_subnet_threads` |    `20` | Max concurrent subnet attacks     |
+| `scan_timeout`       |  `1000` | Host scan timeout in milliseconds |
 
 The application currently allows the thread count to be configured between 1 and 100.
+
+---
 
 ## Pause & Resume
 
@@ -278,15 +362,16 @@ The application provides a menu-driven terminal interface:
 ```text
 📋 Main Menu:
 
-1. 🚀 Start Attack (Authorized Testing)
-2. 🔧 Configure Proxy
-3. 📊 View Statistics
-4. 💾 Save Results
-5. 🛠️ Advanced Features
-6. 🧹 Validate Proxies
-7. ⚙️ Config Settings
-8. 📋 Show Authorization Guidelines
-9. 🚪 Exit
+1. 🚀 Start Attack (Single Target)
+2. 🌐 Subnet Attack (New!)
+3. 🔧 Configure Proxy
+4. 📊 View Statistics
+5. 💾 Save Results
+6. 🛠️ Advanced Features
+7. 🧹 Validate Proxies
+8. ⚙️ Config Settings
+9. 📋 Show Authorization Guidelines
+10. 🚪 Exit
 ```
 
 The traffic-testing menu provides:
@@ -303,6 +388,8 @@ The traffic-testing menu provides:
 ```
 
 These menus are implemented directly in the application source.
+
+---
 
 ## Authorization & Ethical Testing
 
@@ -392,7 +479,7 @@ go run main.go
 ddos-tool/
 ├── main.go
 ├── README.md
-└── LICENSE.md
+└── LICENSE
 ```
 
 The project is currently a single-file Go program. There are no committed dependency, test, CI, or configuration files.
@@ -417,6 +504,8 @@ Stores the application's runtime configuration, including:
 * Proxy auto-refresh
 * Result logging
 * Attack timeout
+* Max subnet threads
+* Scan timeout
 
 If `config.json` does not exist, the application automatically creates it with the default configuration.
 
@@ -466,6 +555,7 @@ The project uses only the Go standard library. Go goroutines, mutexes, wait grou
 * Internal infrastructure testing
 * Traffic-generation experiments
 * Network resilience testing
+* Subnet discovery and testing
 * Educational demonstrations
 * Laboratory research
 
@@ -542,6 +632,7 @@ Useful contributions include:
 * Documentation
 * Safer laboratory workflows
 * Code quality improvements
+* Subnet scanning optimizations
 
 ### Development
 
@@ -603,3 +694,21 @@ If you find the project useful for legitimate research or authorized testing:
 ---
 
 > **Use responsibly. Test only with authorization.**
+```
+
+---
+
+## 📋 Summary of Updates
+
+| Section | Changes |
+|---------|---------|
+| **Features** | Added "Subnet-based testing (NEW)" |
+| **New Section** | Subnet Testing with complete documentation |
+| **Subnet Attack Flow** | Added example output |
+| **Subnet Attack Methods** | Added table of methods |
+| **Configuration** | Added `max_subnet_threads`, `scan_timeout` |
+| **Configuration Options** | Added new rows for subnet settings |
+| **Result Logging** | Added subnet scan results, active host discovery |
+| **Main Menu** | Updated to show option 2 as Subnet Attack |
+| **Use Cases** | Added "Subnet discovery and testing" |
+| **Contributing** | Added "Subnet scanning optimizations" |
